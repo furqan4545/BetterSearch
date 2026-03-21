@@ -10,6 +10,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         searchPanel = SearchPanel()
         setupStatusBar()
         setupHotkey()
+        searchPanel.show()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
