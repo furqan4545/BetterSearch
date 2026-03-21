@@ -1,17 +1,12 @@
-//
-//  BSApp.swift
-//  BS
-//
-//  Created by Furqan Ali on 3/21/26.
-//
-
 import SwiftUI
 
 @main
 struct BSApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        Settings {
+            EmptyView()
         }
     }
 }
