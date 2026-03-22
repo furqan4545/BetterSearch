@@ -7,6 +7,7 @@ private let logger = Logger(subsystem: "BetterSearch.BS", category: "panel")
 class SearchPanel: NSPanel {
     let viewModel = SearchViewModel()
     private var hostingView: NSHostingView<SearchView>!
+    private var isDismissing = false
 
     init() {
         super.init(
@@ -44,23 +45,49 @@ class SearchPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 
+    // MARK: - Dismiss on click outside (like Spotlight)
+
+    override func resignKey() {
+        super.resignKey()
+        // When panel loses focus (user clicked elsewhere), dismiss it
+        if isVisible && !isDismissing {
+            DispatchQueue.main.async { [weak self] in
+                self?.dismiss()
+            }
+        }
+    }
+
+    // MARK: - Resize without repositioning X (fix drag jump bug)
+
     override func layoutIfNeeded() {
         super.layoutIfNeeded()
         resizeToFitContent()
     }
 
     private func resizeToFitContent() {
-        guard let screen = NSScreen.main else { return }
         let fittingSize = hostingView.fittingSize
-        let screenFrame = screen.visibleFrame
-        let x = screenFrame.midX - fittingSize.width / 2
-        let currentTop = frame.origin.y + frame.size.height
-        let newOrigin = NSPoint(x: x, y: currentTop - fittingSize.height)
-        setFrame(NSRect(origin: newOrigin, size: fittingSize), display: true, animate: false)
+
+        // Keep the current X position (user may have dragged it)
+        // Keep the top edge anchored (grow/shrink downward)
+        let currentFrame = frame
+        let currentTop = currentFrame.origin.y + currentFrame.size.height
+        let newY = currentTop - fittingSize.height
+
+        let newFrame = NSRect(
+            x: currentFrame.origin.x,  // ← preserve X, don't recenter!
+            y: newY,
+            width: fittingSize.width,
+            height: fittingSize.height
+        )
+
+        setFrame(newFrame, display: true, animate: false)
     }
+
+    // MARK: - Show / Dismiss / Toggle
 
     func show() {
         logger.warning("show() called")
+        isDismissing = false
         viewModel.searchText = ""
         viewModel.results = []
 
@@ -68,6 +95,8 @@ class SearchPanel: NSPanel {
             logger.error("No main screen")
             return
         }
+
+        // Always open centered near top of screen (fresh position)
         let screenFrame = screen.visibleFrame
         let panelWidth: CGFloat = 680
         let panelHeight: CGFloat = 72
@@ -81,9 +110,12 @@ class SearchPanel: NSPanel {
     }
 
     func dismiss() {
+        guard isVisible else { return }
+        isDismissing = true
         orderOut(nil)
         viewModel.searchText = ""
         viewModel.results = []
+        isDismissing = false
     }
 
     func toggle() {

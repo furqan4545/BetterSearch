@@ -6,8 +6,13 @@ private let logger = Logger(subsystem: "BetterSearch.BS", category: "app")
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var searchPanel: SearchPanel!
     private var statusItem: NSStatusItem!
-    private var globalMonitor: Any?
-    private var localMonitor: Any?
+    private var hotkey: GlobalHotkey?
+    private var onboardingWindow: OnboardingWindow?
+
+    private var hasCompletedOnboarding: Bool {
+        get { UserDefaults.standard.bool(forKey: "onboardingCompleted") }
+        set { UserDefaults.standard.set(newValue, forKey: "onboardingCompleted") }
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         logger.warning("App launched")
@@ -24,24 +29,74 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupStatusBar()
         setupHotkey()
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            // Hide the SwiftUI window again (it can appear late)
-            for window in NSApp.windows where window !== self.searchPanel {
-                window.orderOut(nil)
+        if hasCompletedOnboarding {
+            // Already set up — hide dock icon and go straight to menu bar mode
+            hideDockIcon()
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                for window in NSApp.windows where window !== self.searchPanel {
+                    window.orderOut(nil)
+                }
             }
-            self.searchPanel.show()
+        } else {
+            // First launch — show onboarding with dock icon visible
+            showOnboarding()
         }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        searchPanel.show()
+        if hasCompletedOnboarding {
+            searchPanel.show()
+        } else {
+            showOnboarding()
+        }
         return false
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        if let monitor = globalMonitor { NSEvent.removeMonitor(monitor) }
-        if let monitor = localMonitor { NSEvent.removeMonitor(monitor) }
+        hotkey?.unregister()
     }
+
+    // MARK: - Onboarding
+
+    private func showOnboarding() {
+        // Hide any SwiftUI windows
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            for window in NSApp.windows where window !== self.searchPanel && !(window is OnboardingWindow) {
+                window.orderOut(nil)
+            }
+        }
+
+        onboardingWindow = OnboardingWindow { [weak self] in
+            guard let self else { return }
+            self.hasCompletedOnboarding = true
+            self.onboardingWindow = nil
+
+            // Re-register hotkey now that we (hopefully) have permission
+            self.setupHotkey()
+
+            // Hide dock icon and switch to menu bar mode
+            self.hideDockIcon()
+
+            // Show the search panel
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                self.searchPanel.show()
+            }
+
+            logger.warning("Onboarding completed")
+        }
+        onboardingWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    // MARK: - Dock Icon
+
+    private func hideDockIcon() {
+        NSApp.setActivationPolicy(.accessory)
+        logger.warning("Dock icon hidden — menu bar mode")
+    }
+
+    // MARK: - Status Bar
 
     private func setupStatusBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -50,38 +105,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Search", action: #selector(showPanel), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Search (⌘⇧Space)", action: #selector(showPanel), keyEquivalent: ""))
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "Show Welcome", action: #selector(resetOnboarding), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit BS", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
     }
 
+    // MARK: - Global Hotkey (Carbon API — same as Alfred/Raycast)
+
     private func setupHotkey() {
-        // Option+Space to toggle search panel
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            if flags == [.option] && event.keyCode == 49 {
-                logger.warning("Global hotkey triggered")
-                DispatchQueue.main.async {
-                    self?.searchPanel.toggle()
-                }
-            }
+        hotkey?.unregister()
+        hotkey = GlobalHotkey.cmdShiftSpace { [weak self] in
+            logger.warning("Global hotkey Cmd+Shift+Space triggered")
+            self?.searchPanel.toggle()
         }
-
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            if flags == [.option] && event.keyCode == 49 {
-                logger.warning("Local hotkey triggered")
-                self?.searchPanel.toggle()
-                return nil
-            }
-            return event
-        }
-
-        logger.warning("Hotkey registered: Option+Space")
     }
 
     @objc private func showPanel() {
         searchPanel.show()
+    }
+
+    @objc private func resetOnboarding() {
+        hasCompletedOnboarding = false
+        // Show dock icon temporarily for onboarding
+        NSApp.setActivationPolicy(.regular)
+        showOnboarding()
     }
 }
