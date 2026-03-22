@@ -73,12 +73,12 @@ struct SearchView: View {
     private var searchField: some View {
         HStack(spacing: 12) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 20, weight: .light))
+                .font(.system(size: 20, weight: .light, design: .rounded))
                 .foregroundStyle(.secondary)
 
             TextField("Search files...", text: $viewModel.searchText)
                 .textFieldStyle(.plain)
-                .font(.system(size: 22, weight: .light))
+                .font(.system(size: 22, weight: .light, design: .rounded))
 
             // AI Toggle
             Button(action: { viewModel.aiEnabled.toggle() }) {
@@ -108,11 +108,11 @@ struct SearchView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(result.name)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
                     .lineLimit(1)
 
                 Text(result.path)
-                    .font(.system(size: 11))
+                    .font(.system(size: 11, design: .rounded))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)

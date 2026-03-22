@@ -47,7 +47,7 @@ class SearchPanel: NSPanel {
         visualEffect.state = .active
         visualEffect.isEmphasized = true
         visualEffect.wantsLayer = true
-        visualEffect.layer?.cornerRadius = 16
+        visualEffect.layer?.cornerRadius = 24
         visualEffect.layer?.cornerCurve = .continuous
         visualEffect.layer?.masksToBounds = true
         visualEffect.translatesAutoresizingMaskIntoConstraints = false
@@ -143,20 +143,106 @@ class SearchPanel: NSPanel {
         let panelWidth: CGFloat = 680
         let panelHeight: CGFloat = 72
         let x = screenFrame.midX - panelWidth / 2
-        let y = screenFrame.maxY - 200
+        let y = screenFrame.maxY - 350
         setFrame(NSRect(x: x, y: y, width: panelWidth, height: panelHeight), display: true)
 
+        // ── Liquid glass open animation ──
+        contentView?.wantsLayer = true
+        guard let layer = contentView?.layer else {
+            NSApp.activate(ignoringOtherApps: true)
+            makeKeyAndOrderFront(nil)
+            return
+        }
+
+        layer.removeAllAnimations()
+
+        // Anchor at center so scale expands equally in all directions
+        layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        layer.position = CGPoint(x: layer.bounds.midX, y: layer.bounds.midY)
+
+        alphaValue = 0
         NSApp.activate(ignoringOtherApps: true)
         makeKeyAndOrderFront(nil)
+
+        // Fast spring scale from center
+        let spring = CASpringAnimation(keyPath: "transform.scale")
+        spring.fromValue = 0.92
+        spring.toValue = 1.0
+        spring.mass = 0.6
+        spring.stiffness = 300
+        spring.damping = 18
+        spring.initialVelocity = 0
+        spring.duration = spring.settlingDuration
+
+        // Quick fade in
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0.0
+        fade.toValue = 1.0
+        fade.duration = 0.12
+        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+
+        layer.transform = CATransform3DIdentity
+        layer.opacity = 1.0
+        self.alphaValue = 1.0
+
+        layer.add(spring, forKey: "openScale")
+        layer.add(fade, forKey: "openFade")
     }
 
     func dismiss() {
         guard isVisible else { return }
         isDismissing = true
-        orderOut(nil)
-        viewModel.searchText = ""
-        viewModel.results = []
-        isDismissing = false
+
+        guard let layer = contentView?.layer else {
+            orderOut(nil)
+            viewModel.searchText = ""
+            viewModel.results = []
+            isDismissing = false
+            return
+        }
+
+        // ── Liquid glass close animation ──
+        contentView?.wantsLayer = true
+        guard let layer = contentView?.layer else {
+            orderOut(nil)
+            viewModel.searchText = ""
+            viewModel.results = []
+            isDismissing = false
+            return
+        }
+
+        layer.removeAllAnimations()
+        layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        layer.position = CGPoint(x: layer.bounds.midX, y: layer.bounds.midY)
+
+        // Group: fast scale down + fade out
+        let shrink = CABasicAnimation(keyPath: "transform.scale")
+        shrink.fromValue = 1.0
+        shrink.toValue = 0.95
+
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1.0
+        fade.toValue = 0.0
+
+        let group = CAAnimationGroup()
+        group.animations = [shrink, fade]
+        group.duration = 0.12
+        group.timingFunction = CAMediaTimingFunction(name: .easeIn)
+        group.isRemovedOnCompletion = false
+        group.fillMode = .forwards
+
+        layer.add(group, forKey: "close")
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.13) { [weak self] in
+            guard let self else { return }
+            self.orderOut(nil)
+            layer.removeAllAnimations()
+            layer.transform = CATransform3DIdentity
+            layer.opacity = 1.0
+            self.viewModel.searchText = ""
+            self.viewModel.results = []
+            self.isDismissing = false
+        }
     }
 
     func toggle() {
@@ -209,6 +295,6 @@ class GradientBorderView: NSView {
         super.layout()
         gradientLayer.frame = bounds
         let inset = bounds.insetBy(dx: 0.75, dy: 0.75)
-        shapeLayer.path = CGPath(roundedRect: inset, cornerWidth: 16, cornerHeight: 16, transform: nil)
+        shapeLayer.path = CGPath(roundedRect: inset, cornerWidth: 24, cornerHeight: 24, transform: nil)
     }
 }
