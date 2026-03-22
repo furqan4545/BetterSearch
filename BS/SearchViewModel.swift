@@ -1,27 +1,21 @@
 import AppKit
 import Combine
+import os
+
+private let logger = Logger(subsystem: "BetterSearch.BS", category: "search")
 
 class SearchViewModel: ObservableObject {
     @Published var searchText: String = ""
     @Published var results: [SearchResult] = []
     @Published var isSearching: Bool = false
+    @Published var searchTimeMs: Double = 0
 
-    private let query = NSMetadataQuery()
     private var cancellables = Set<AnyCancellable>()
+    private var searchID: UUID = UUID()
 
     init() {
-        query.searchScopes = ["/"]
-        query.sortDescriptors = [NSSortDescriptor(key: "kMDItemFSName", ascending: true)]
-
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(queryDidFinish(_:)),
-            name: .NSMetadataQueryDidFinishGathering,
-            object: query
-        )
-
         $searchText
-            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+            .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
             .removeDuplicates()
             .sink { [weak self] term in
                 self?.performSearch(term: term)
@@ -29,60 +23,99 @@ class SearchViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
-    deinit {
-        query.stop()
-        NotificationCenter.default.removeObserver(self)
-    }
-
     private func performSearch(term: String) {
-        query.stop()
-
         let trimmed = term.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else {
+        let thisSearchID = UUID()
+        searchID = thisSearchID
+
+        guard trimmed.count >= 2 else {
             results = []
             isSearching = false
+            searchTimeMs = 0
             return
         }
 
-        isSearching = true
+        let indexer = FileIndexer.shared
 
-        let escaped = trimmed
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "*", with: "\\*")
-            .replacingOccurrences(of: "?", with: "\\?")
+        if indexer.ready {
+            // ⚡ IN-MEMORY SEARCH — sub-millisecond
+            let start = CFAbsoluteTimeGetCurrent()
+            let results = indexer.search(term: trimmed, limit: 200)
+            let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
 
-        query.predicate = NSPredicate(format: "kMDItemFSName LIKE[cd] %@", "*\(escaped)*")
-        query.start()
+            self.results = results
+            self.searchTimeMs = elapsed
+            self.isSearching = false
+        } else {
+            // Fallback: mdfind while index is building
+            isSearching = true
+            results = []
+
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let start = CFAbsoluteTimeGetCurrent()
+                let paths = Self.runMdfind(term: trimmed)
+                let results = Self.buildAndRank(paths: paths, searchTerm: trimmed.lowercased())
+                let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+
+                DispatchQueue.main.async {
+                    guard let self, self.searchID == thisSearchID else { return }
+                    self.results = results
+                    self.searchTimeMs = elapsed
+                    self.isSearching = false
+                }
+            }
+        }
     }
 
-    @objc private func queryDidFinish(_ notification: Notification) {
-        query.disableUpdates()
+    // MARK: - mdfind fallback
 
-        var newResults: [SearchResult] = []
-        let count = min(query.resultCount, 20)
+    private static let junkPrefixes: [String] = {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return [
+            "\(home)/Library", "/System", "/Library", "/private", "/usr", "/var",
+        ]
+    }()
 
-        for i in 0..<count {
-            guard let item = query.result(at: i) as? NSMetadataItem,
-                  let name = item.value(forAttribute: kMDItemFSName as String) as? String,
-                  let path = item.value(forAttribute: kMDItemPath as String) as? String else {
-                continue
-            }
+    nonisolated static func runMdfind(term: String) -> [String] {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/mdfind")
+        process.arguments = ["-name", term]
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
 
+        do { try process.run() } catch { return [] }
+
+        // 3 second timeout
+        DispatchQueue.global().asyncAfter(deadline: .now() + 3) {
+            if process.isRunning { process.terminate() }
+        }
+        process.waitUntilExit()
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: data, encoding: .utf8) ?? ""
+        return output.components(separatedBy: "\n")
+            .filter { !$0.isEmpty }
+            .filter { path in !junkPrefixes.contains(where: { path.hasPrefix($0) }) }
+    }
+
+    nonisolated static func buildAndRank(paths: [String], searchTerm: String) -> [SearchResult] {
+        var results = Array(paths.prefix(200)).compactMap { path -> SearchResult? in
             let url = URL(fileURLWithPath: path)
-            let icon = NSWorkspace.shared.icon(forFile: path)
-            icon.size = NSSize(width: 32, height: 32)
-
-            newResults.append(SearchResult(
-                id: path,
-                name: name,
-                path: path,
-                url: url,
-                icon: icon
-            ))
+            return SearchResult(id: path, name: url.lastPathComponent, path: path, url: url, icon: nil)
         }
 
-        results = newResults
-        isSearching = false
-        query.enableUpdates()
+        results.sort { a, b in
+            scoreResult(a, searchTerm: searchTerm) < scoreResult(b, searchTerm: searchTerm)
+        }
+        return results
+    }
+
+    nonisolated static func scoreResult(_ r: SearchResult, searchTerm: String) -> Int {
+        var score = FileIndexer.tierScore(path: r.path, name: r.name)
+        let nameNoExt = (r.name as NSString).deletingPathExtension.lowercased()
+        if nameNoExt == searchTerm { score -= 100 }
+        else if r.name.lowercased().hasPrefix(searchTerm) { score -= 50 }
+        return max(0, score)
     }
 }

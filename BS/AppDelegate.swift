@@ -1,4 +1,7 @@
 import AppKit
+import os
+
+private let logger = Logger(subsystem: "BetterSearch.BS", category: "app")
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var searchPanel: SearchPanel!
@@ -7,10 +10,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var localMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        logger.warning("App launched")
+
+        // Hide the default SwiftUI window
+        for window in NSApp.windows {
+            window.orderOut(nil)
+        }
+
+        // Start building in-memory file index immediately
+        FileIndexer.shared.buildIndex()
+
         searchPanel = SearchPanel()
         setupStatusBar()
         setupHotkey()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            // Hide the SwiftUI window again (it can appear late)
+            for window in NSApp.windows where window !== self.searchPanel {
+                window.orderOut(nil)
+            }
+            self.searchPanel.show()
+        }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         searchPanel.show()
+        return false
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -25,33 +50,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Search", action: #selector(togglePanel), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Search", action: #selector(showPanel), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit BS", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
     }
 
     private func setupHotkey() {
+        // Option+Space to toggle search panel
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            if flags == [.command, .shift] && event.keyCode == 49 {
+            if flags == [.option] && event.keyCode == 49 {
+                logger.warning("Global hotkey triggered")
                 DispatchQueue.main.async {
-                    self?.togglePanel()
+                    self?.searchPanel.toggle()
                 }
             }
         }
 
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            if flags == [.command, .shift] && event.keyCode == 49 {
-                self?.togglePanel()
+            if flags == [.option] && event.keyCode == 49 {
+                logger.warning("Local hotkey triggered")
+                self?.searchPanel.toggle()
                 return nil
             }
             return event
         }
+
+        logger.warning("Hotkey registered: Option+Space")
     }
 
-    @objc private func togglePanel() {
-        searchPanel.toggle()
+    @objc private func showPanel() {
+        searchPanel.show()
     }
 }
