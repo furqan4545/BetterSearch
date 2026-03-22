@@ -5,6 +5,7 @@ struct SearchView: View {
     var onDismiss: () -> Void = {}
 
     @State private var selectedIndex: Int? = nil
+    @State private var selectedPaths: Set<String> = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -123,48 +124,19 @@ struct SearchView: View {
     }
 
     private func resultRow(result: SearchResult, index: Int) -> some View {
-        HStack(spacing: 12) {
-            ThumbnailView(result: result)
-                .frame(width: 36, height: 36)
-                .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(result.name)
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.primary)
-                    .shadow(color: .black.opacity(0.4), radius: 1.5, x: 0, y: 0.5)
-                    .lineLimit(1)
-
-                Text(result.path)
-                    .font(.system(size: 11, design: .rounded))
-                    .foregroundStyle(.primary.opacity(0.65))
-                    .shadow(color: .black.opacity(0.4), radius: 1.5, x: 0, y: 0.5)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-
-            Spacer()
-
-            if viewModel.aiEnabled && result.matchSource != .exact {
-                matchBadge(source: result.matchSource)
-            }
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(selectedIndex == index ? Color.white.opacity(0.1) : Color.clear)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            NSWorkspace.shared.open(result.url)
-        }
-        .contextMenu {
-            Button("Open") {
-                NSWorkspace.shared.open(result.url)
-            }
-            Button("Show in Finder") {
+        ResultRowView(
+            result: result,
+            index: index,
+            isSelected: selectedIndex == index,
+            onOpen: { NSWorkspace.shared.open(result.url) },
+            onCopyImage: {
+                copyImageToClipboard(result: result)
+            },
+            onShowInFinder: {
                 NSWorkspace.shared.selectFile(result.path, inFileViewerRootedAtPath: "")
-            }
-        }
+            },
+            showAIBadge: viewModel.aiEnabled && result.matchSource != .exact
+        )
     }
 
     private func moveSelection(by delta: Int) {
@@ -183,25 +155,11 @@ struct SearchView: View {
         NSWorkspace.shared.open(viewModel.results[index].url)
     }
 
-    private func matchBadge(source: MatchSource) -> some View {
-        let (label, color): (String, Color) = {
-            switch source {
-            case .exact: return ("", .clear)
-            case .fuzzy: return ("~fuzzy", .orange)
-            case .semantic: return ("🧠 similar", .purple)
-            case .category: return ("📁 category", .blue)
-            case .contentMatch: return ("📄 content", .green)
-            }
-        }()
-
-        return Text(label)
-            .font(.system(size: 10, weight: .bold, design: .rounded))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(color.opacity(0.35))
-            .foregroundStyle(.white)
-            .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 0.5)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+    private func copyImageToClipboard(result: SearchResult) {
+        guard let image = NSImage(contentsOfFile: result.path) else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.writeObjects([image, result.url as NSURL])
     }
 }
 

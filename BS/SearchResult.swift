@@ -32,9 +32,18 @@ struct SearchResult: Identifiable {
         "pages", "numbers", "keynote", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
     ]
 
+    static let imageExtensions: Set<String> = [
+        "png", "jpg", "jpeg", "gif", "bmp", "tiff", "webp", "heic", "svg", "ico", "raw",
+    ]
+
     var supportsThumbnail: Bool {
         let ext = (name as NSString).pathExtension.lowercased()
         return Self.thumbnailExtensions.contains(ext)
+    }
+
+    var isImage: Bool {
+        let ext = (name as NSString).pathExtension.lowercased()
+        return Self.imageExtensions.contains(ext)
     }
 }
 
