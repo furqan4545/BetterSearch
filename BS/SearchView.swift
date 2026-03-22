@@ -65,7 +65,6 @@ struct SearchView: View {
             }
         }
         .frame(width: 680)
-        .background(Color(nsColor: .windowBackgroundColor))
         .onKeyPress(.upArrow) { moveSelection(by: -1); return .handled }
         .onKeyPress(.downArrow) { moveSelection(by: 1); return .handled }
         .onKeyPress(.return) { openSelected(); return .handled }
@@ -128,7 +127,7 @@ struct SearchView: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(selectedIndex == index ? Color.accentColor.opacity(0.2) : Color.clear)
+        .background(selectedIndex == index ? Color.white.opacity(0.1) : Color.clear)
         .contentShape(Rectangle())
         .onTapGesture {
             NSWorkspace.shared.open(result.url)
