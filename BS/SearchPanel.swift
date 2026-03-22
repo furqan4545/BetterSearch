@@ -33,14 +33,11 @@ class SearchPanel: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         animationBehavior = .utilityWindow
 
-        // ── Outer container (transparent, holds shadow + border + vibrancy) ──
+        // ── Container ──
         containerView = NSView()
         containerView.wantsLayer = true
-        containerView.layer?.backgroundColor = nil
 
-        // No shadow on container — we use the window's native shadow instead
-
-        // ── Vibrancy (frosted glass blur) ──
+        // ── Vibrancy (frosted glass) ──
         let visualEffect = NSVisualEffectView()
         visualEffect.material = .hudWindow
         visualEffect.blendingMode = .behindWindow
@@ -52,11 +49,11 @@ class SearchPanel: NSPanel {
         visualEffect.layer?.masksToBounds = true
         visualEffect.translatesAutoresizingMaskIntoConstraints = false
 
-        // ── Gradient border layer ──
+        // ── Gradient border (separate view on top) ──
         let borderView = GradientBorderView()
         borderView.translatesAutoresizingMaskIntoConstraints = false
 
-        // ── SwiftUI search content ──
+        // ── SwiftUI content ──
         let searchView = SearchView(viewModel: viewModel, onDismiss: { [weak self] in
             self?.dismiss()
         })
@@ -64,27 +61,22 @@ class SearchPanel: NSPanel {
         hostingView.sizingOptions = [.intrinsicContentSize]
         hostingView.translatesAutoresizingMaskIntoConstraints = false
 
-        // ── Assemble layers ──
-        // containerView → visualEffect → hostingView (content)
-        //               → borderView (gradient border on top)
+        // ── Assemble ──
         visualEffect.addSubview(hostingView)
         containerView.addSubview(visualEffect)
         containerView.addSubview(borderView)
 
         NSLayoutConstraint.activate([
-            // Vibrancy fills container edge to edge
             visualEffect.topAnchor.constraint(equalTo: containerView.topAnchor),
             visualEffect.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
             visualEffect.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
             visualEffect.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
 
-            // Content fills vibrancy
             hostingView.topAnchor.constraint(equalTo: visualEffect.topAnchor),
             hostingView.bottomAnchor.constraint(equalTo: visualEffect.bottomAnchor),
             hostingView.leadingAnchor.constraint(equalTo: visualEffect.leadingAnchor),
             hostingView.trailingAnchor.constraint(equalTo: visualEffect.trailingAnchor),
 
-            // Border overlay matches vibrancy exactly
             borderView.topAnchor.constraint(equalTo: visualEffect.topAnchor),
             borderView.bottomAnchor.constraint(equalTo: visualEffect.bottomAnchor),
             borderView.leadingAnchor.constraint(equalTo: visualEffect.leadingAnchor),
@@ -92,7 +84,7 @@ class SearchPanel: NSPanel {
         ])
 
         contentView = containerView
-        logger.warning("Panel configured (borderless, vibrancy, gradient border)")
+        logger.warning("Panel configured")
     }
 
     override var canBecomeKey: Bool { true }
@@ -109,7 +101,7 @@ class SearchPanel: NSPanel {
         }
     }
 
-    // MARK: - Resize keeping X position
+    // MARK: - Resize
 
     override func layoutIfNeeded() {
         super.layoutIfNeeded()
@@ -129,10 +121,9 @@ class SearchPanel: NSPanel {
         invalidateShadow()
     }
 
-    // MARK: - Show / Dismiss / Toggle
+    // MARK: - Show with liquid glass animation
 
     func show() {
-        logger.warning("show() called")
         isDismissing = false
         viewModel.searchText = ""
         viewModel.results = []
@@ -146,103 +137,70 @@ class SearchPanel: NSPanel {
         let y = screenFrame.maxY - 350
         setFrame(NSRect(x: x, y: y, width: panelWidth, height: panelHeight), display: true)
 
-        // ── Liquid glass open animation ──
-        contentView?.wantsLayer = true
-        guard let layer = contentView?.layer else {
-            NSApp.activate(ignoringOtherApps: true)
-            makeKeyAndOrderFront(nil)
-            return
-        }
-
-        layer.removeAllAnimations()
-
-        // Anchor at center so scale expands equally in all directions
-        layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
-        layer.position = CGPoint(x: layer.bounds.midX, y: layer.bounds.midY)
-
+        // Start invisible and scaled down
         alphaValue = 0
         NSApp.activate(ignoringOtherApps: true)
         makeKeyAndOrderFront(nil)
 
-        // Fast spring scale from center
-        let spring = CASpringAnimation(keyPath: "transform.scale")
-        spring.fromValue = 0.92
-        spring.toValue = 1.0
-        spring.mass = 0.6
-        spring.stiffness = 300
-        spring.damping = 18
-        spring.initialVelocity = 0
-        spring.duration = spring.settlingDuration
+        // Animate the whole window: scale from center + fade in
+        if let layer = contentView?.layer {
+            layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+            layer.position = CGPoint(x: layer.bounds.midX, y: layer.bounds.midY)
 
-        // Quick fade in
-        let fade = CABasicAnimation(keyPath: "opacity")
-        fade.fromValue = 0.0
-        fade.toValue = 1.0
-        fade.duration = 0.12
-        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            let spring = CASpringAnimation(keyPath: "transform.scale")
+            spring.fromValue = 0.92
+            spring.toValue = 1.0
+            spring.mass = 0.6
+            spring.stiffness = 300
+            spring.damping = 18
+            spring.duration = spring.settlingDuration
+            layer.add(spring, forKey: "openScale")
+        }
 
-        layer.transform = CATransform3DIdentity
-        layer.opacity = 1.0
-        self.alphaValue = 1.0
-
-        layer.add(spring, forKey: "openScale")
-        layer.add(fade, forKey: "openFade")
+        // Window-level fade (covers EVERYTHING uniformly)
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.12
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            self.animator().alphaValue = 1.0
+        }
     }
+
+    // MARK: - Dismiss with liquid glass animation
 
     func dismiss() {
         guard isVisible else { return }
         isDismissing = true
 
-        guard let layer = contentView?.layer else {
-            orderOut(nil)
-            viewModel.searchText = ""
-            viewModel.results = []
-            isDismissing = false
-            return
+        // Scale down from center
+        if let layer = contentView?.layer {
+            layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+            layer.position = CGPoint(x: layer.bounds.midX, y: layer.bounds.midY)
+
+            let shrink = CABasicAnimation(keyPath: "transform.scale")
+            shrink.fromValue = 1.0
+            shrink.toValue = 0.95
+            shrink.duration = 0.1
+            shrink.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            shrink.isRemovedOnCompletion = false
+            shrink.fillMode = .forwards
+            layer.add(shrink, forKey: "closeScale")
         }
 
-        // ── Liquid glass close animation ──
-        contentView?.wantsLayer = true
-        guard let layer = contentView?.layer else {
-            orderOut(nil)
-            viewModel.searchText = ""
-            viewModel.results = []
-            isDismissing = false
-            return
-        }
-
-        layer.removeAllAnimations()
-        layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
-        layer.position = CGPoint(x: layer.bounds.midX, y: layer.bounds.midY)
-
-        // Group: fast scale down + fade out
-        let shrink = CABasicAnimation(keyPath: "transform.scale")
-        shrink.fromValue = 1.0
-        shrink.toValue = 0.95
-
-        let fade = CABasicAnimation(keyPath: "opacity")
-        fade.fromValue = 1.0
-        fade.toValue = 0.0
-
-        let group = CAAnimationGroup()
-        group.animations = [shrink, fade]
-        group.duration = 0.12
-        group.timingFunction = CAMediaTimingFunction(name: .easeIn)
-        group.isRemovedOnCompletion = false
-        group.fillMode = .forwards
-
-        layer.add(group, forKey: "close")
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.13) { [weak self] in
+        // Window-level fade out (ENTIRE window — content, border, everything at once)
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.1
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            self.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
             guard let self else { return }
             self.orderOut(nil)
-            layer.removeAllAnimations()
-            layer.transform = CATransform3DIdentity
-            layer.opacity = 1.0
+            self.contentView?.layer?.removeAllAnimations()
+            self.contentView?.layer?.transform = CATransform3DIdentity
+            self.alphaValue = 1.0
             self.viewModel.searchText = ""
             self.viewModel.results = []
             self.isDismissing = false
-        }
+        })
     }
 
     func toggle() {
@@ -254,7 +212,7 @@ class SearchPanel: NSPanel {
     }
 }
 
-// MARK: - Gradient Border View (CAGradientLayer masked to a stroke path)
+// MARK: - Gradient Border View
 
 class GradientBorderView: NSView {
     private let gradientLayer = CAGradientLayer()
