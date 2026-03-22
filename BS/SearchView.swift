@@ -11,7 +11,10 @@ struct SearchView: View {
             searchField
 
             if viewModel.isSearching && viewModel.results.isEmpty {
-                Divider()
+                Rectangle()
+                    .fill(Color.primary.opacity(0.3))
+                    .frame(height: 0.5)
+                    .padding(.horizontal, 16)
                 HStack(spacing: 8) {
                     ProgressView()
                         .scaleEffect(0.6)
@@ -24,13 +27,21 @@ struct SearchView: View {
             }
 
             if !viewModel.results.isEmpty {
-                Divider()
+                Rectangle()
+                    .fill(Color.primary.opacity(0.3))
+                    .frame(height: 0.5)
+                    .padding(.horizontal, 16)
+
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(Array(viewModel.results.enumerated()), id: \.element.id) { index, result in
                             resultRow(result: result, index: index)
                             if index < viewModel.results.count - 1 {
-                                Divider().padding(.leading, 64)
+                                Rectangle()
+                                    .fill(Color.primary.opacity(0.25))
+                                    .frame(height: 0.5)
+                                    .padding(.horizontal, 20)
+                                    .padding(.leading, 48)
                             }
                         }
                     }
@@ -39,7 +50,10 @@ struct SearchView: View {
             }
 
             if !viewModel.isSearching && viewModel.results.isEmpty && viewModel.searchText.trimmingCharacters(in: .whitespaces).count >= 2 {
-                Divider()
+                Rectangle()
+                    .fill(Color.primary.opacity(0.3))
+                    .frame(height: 0.5)
+                    .padding(.horizontal, 16)
                 Text("No results found")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
@@ -49,7 +63,10 @@ struct SearchView: View {
 
             // Search speed indicator
             if !viewModel.results.isEmpty && viewModel.searchTimeMs > 0 {
-                Divider()
+                Rectangle()
+                    .fill(Color.primary.opacity(0.25))
+                    .frame(height: 0.5)
+                    .padding(.horizontal, 16)
                 HStack {
                     Text("\(viewModel.results.count) results in \(String(format: "%.1f", viewModel.searchTimeMs))ms")
                         .font(.system(size: 11))
@@ -105,15 +122,19 @@ struct SearchView: View {
         HStack(spacing: 12) {
             ThumbnailView(result: result)
                 .frame(width: 36, height: 36)
+                .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(result.name)
-                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.primary)
+                    .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 0.5)
                     .lineLimit(1)
 
                 Text(result.path)
                     .font(.system(size: 11, design: .rounded))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.primary.opacity(0.6))
+                    .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 0.5)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
