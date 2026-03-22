@@ -5,7 +5,6 @@ struct SearchView: View {
     var onDismiss: () -> Void = {}
 
     @State private var selectedIndex: Int? = nil
-    @State private var selectedPaths: Set<String> = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -128,9 +127,10 @@ struct SearchView: View {
             result: result,
             index: index,
             isSelected: selectedIndex == index,
+            isImageSelected: viewModel.selectedImagePaths.contains(result.path),
             onOpen: { NSWorkspace.shared.open(result.url) },
-            onCopyImage: {
-                copyImageToClipboard(result: result)
+            onToggleCopy: {
+                viewModel.toggleImageSelection(result)
             },
             onShowInFinder: {
                 NSWorkspace.shared.selectFile(result.path, inFileViewerRootedAtPath: "")
@@ -155,12 +155,6 @@ struct SearchView: View {
         NSWorkspace.shared.open(viewModel.results[index].url)
     }
 
-    private func copyImageToClipboard(result: SearchResult) {
-        guard let image = NSImage(contentsOfFile: result.path) else { return }
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.writeObjects([image, result.url as NSURL])
-    }
 }
 
 // MARK: - Keyboard handler compatible with macOS 12+

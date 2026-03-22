@@ -5,12 +5,11 @@ struct ResultRowView: View {
     let result: SearchResult
     let index: Int
     let isSelected: Bool
+    let isImageSelected: Bool
     let onOpen: () -> Void
-    let onCopyImage: () -> Void
+    let onToggleCopy: () -> Void
     let onShowInFinder: () -> Void
     let showAIBadge: Bool
-
-    @State private var copyFlash = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -42,21 +41,15 @@ struct ResultRowView: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isSelected ? Color.white.opacity(0.1) : Color.clear)
-        .allowsHitTesting(false) // Let clicks pass through text/icons to the overlay
+        .background(isImageSelected ? Color.green.opacity(0.15) : (isSelected ? Color.white.opacity(0.1) : Color.clear))
+        .allowsHitTesting(false)
         .overlay {
             ClickableOverlay(action: onOpen)
         }
         .overlay(alignment: .trailing) {
             if result.isImage {
-                CopyButton(copyFlash: $copyFlash, action: {
-                    onCopyImage()
-                    copyFlash = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                        copyFlash = false
-                    }
-                })
-                .padding(.trailing, showAIBadge ? 90 : 20)
+                CopyButton(isOn: isImageSelected, action: onToggleCopy)
+                    .padding(.trailing, showAIBadge ? 90 : 20)
             }
         }
         .contextMenu {
@@ -64,7 +57,7 @@ struct ResultRowView: View {
             Button("Show in Finder") { onShowInFinder() }
             Divider()
             if result.isImage {
-                Button("Copy Image") { onCopyImage() }
+                Button(isImageSelected ? "Deselect Image" : "Select Image to Copy") { onToggleCopy() }
             }
             Button("Copy Path") {
                 NSPasteboard.general.clearContents()
@@ -99,7 +92,7 @@ struct ResultRowView: View {
     }
 }
 
-// MARK: - Transparent clickable overlay — sits on top, catches all clicks
+// MARK: - Transparent clickable overlay
 
 struct ClickableOverlay: NSViewRepresentable {
     let action: () -> Void
@@ -116,49 +109,47 @@ struct ClickableOverlay: NSViewRepresentable {
 
     class ClickOverlayView: NSView {
         var action: (() -> Void)?
-
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
         override func mouseUp(with event: NSEvent) {
-            if event.clickCount == 1 {
-                action?()
-            }
+            if event.clickCount == 1 { action?() }
         }
     }
 }
 
-// MARK: - AppKit-backed copy button that ALWAYS receives clicks
+// MARK: - AppKit copy toggle button
 
 struct CopyButton: NSViewRepresentable {
-    @Binding var copyFlash: Bool
+    let isOn: Bool
     let action: () -> Void
 
     func makeNSView(context: Context) -> NSButton {
         let button = NSButton()
         button.bezelStyle = .inline
         button.isBordered = false
-        button.image = NSImage(systemSymbolName: "doc.on.doc.fill", accessibilityDescription: "Copy")
         button.imageScaling = .scaleProportionallyUpOrDown
-        button.contentTintColor = .white.withAlphaComponent(0.7)
         button.target = context.coordinator
         button.action = #selector(Coordinator.clicked)
         button.setContentHuggingPriority(.required, for: .horizontal)
-
-        // Set fixed size
         button.widthAnchor.constraint(equalToConstant: 28).isActive = true
         button.heightAnchor.constraint(equalToConstant: 28).isActive = true
-
-        button.toolTip = "Copy image to clipboard"
+        button.toolTip = "Select to copy"
+        updateAppearance(button)
         return button
     }
 
     func updateNSView(_ nsView: NSButton, context: Context) {
-        if copyFlash {
-            nsView.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "Copied")
-            nsView.contentTintColor = .systemGreen
+        updateAppearance(nsView)
+    }
+
+    private func updateAppearance(_ button: NSButton) {
+        if isOn {
+            button.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "Selected")
+            button.contentTintColor = .systemGreen
+            button.toolTip = "Selected — click to deselect"
         } else {
-            nsView.image = NSImage(systemSymbolName: "doc.on.doc.fill", accessibilityDescription: "Copy")
-            nsView.contentTintColor = .white.withAlphaComponent(0.7)
+            button.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy")
+            button.contentTintColor = .white.withAlphaComponent(0.5)
+            button.toolTip = "Select to copy"
         }
     }
 
@@ -167,9 +158,6 @@ struct CopyButton: NSViewRepresentable {
     class Coordinator: NSObject {
         let action: () -> Void
         init(action: @escaping () -> Void) { self.action = action }
-
-        @objc func clicked() {
-            action()
-        }
+        @objc func clicked() { action() }
     }
 }

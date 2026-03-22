@@ -10,6 +10,34 @@ class SearchViewModel: ObservableObject {
     @Published var isSearching: Bool = false
     @Published var searchTimeMs: Double = 0
     @Published var aiEnabled: Bool = true  // 🧠 AI Toggle — controls smart search layers
+    @Published var selectedImagePaths: Set<String> = []  // Multi-select for copy
+
+    /// Toggle image selection and update clipboard with all selected images
+    func toggleImageSelection(_ result: SearchResult) {
+        if selectedImagePaths.contains(result.path) {
+            selectedImagePaths.remove(result.path)
+        } else {
+            selectedImagePaths.insert(result.path)
+        }
+        copySelectedImagesToClipboard()
+    }
+
+    /// Copy all selected images to clipboard
+    private func copySelectedImagesToClipboard() {
+        guard !selectedImagePaths.isEmpty else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+
+        var objects: [NSPasteboardWriting] = []
+        for path in selectedImagePaths {
+            let url = URL(fileURLWithPath: path)
+            objects.append(url as NSURL)
+            if let image = NSImage(contentsOfFile: path) {
+                objects.append(image)
+            }
+        }
+        pb.writeObjects(objects)
+    }
 
     private var cancellables = Set<AnyCancellable>()
     private var searchID: UUID = UUID()
@@ -28,6 +56,7 @@ class SearchViewModel: ObservableObject {
         let trimmed = term.trimmingCharacters(in: .whitespaces)
         let thisSearchID = UUID()
         searchID = thisSearchID
+        selectedImagePaths.removeAll()
 
         guard trimmed.count >= 2 else {
             results = []
