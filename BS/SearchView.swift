@@ -84,9 +84,11 @@ struct SearchView: View {
             }
         }
         .frame(width: 680)
-        .onKeyPress(.upArrow) { moveSelection(by: -1); return .handled }
-        .onKeyPress(.downArrow) { moveSelection(by: 1); return .handled }
-        .onKeyPress(.return) { openSelected(); return .handled }
+        .modifier(KeyPressHandler(
+            onUp: { moveSelection(by: -1) },
+            onDown: { moveSelection(by: 1) },
+            onReturn: { openSelected() }
+        ))
     }
 
     private var searchField: some View {
@@ -200,5 +202,65 @@ struct SearchView: View {
             .foregroundStyle(.white)
             .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 0.5)
             .clipShape(RoundedRectangle(cornerRadius: 4))
+    }
+}
+
+// MARK: - Keyboard handler compatible with macOS 12+
+
+struct KeyPressHandler: ViewModifier {
+    var onUp: () -> Void
+    var onDown: () -> Void
+    var onReturn: () -> Void
+
+    func body(content: Content) -> some View {
+        if #available(macOS 14.0, *) {
+            content
+                .onKeyPress(.upArrow) { onUp(); return .handled }
+                .onKeyPress(.downArrow) { onDown(); return .handled }
+                .onKeyPress(.return) { onReturn(); return .handled }
+        } else {
+            content.background(
+                KeyEventView(onUp: onUp, onDown: onDown, onReturn: onReturn)
+                    .frame(width: 0, height: 0)
+            )
+        }
+    }
+}
+
+/// NSView-based key event handler for macOS 12/13
+struct KeyEventView: NSViewRepresentable {
+    var onUp: () -> Void
+    var onDown: () -> Void
+    var onReturn: () -> Void
+
+    func makeNSView(context: Context) -> KeyCatcherView {
+        let view = KeyCatcherView()
+        view.onUp = onUp
+        view.onDown = onDown
+        view.onReturn = onReturn
+        return view
+    }
+
+    func updateNSView(_ nsView: KeyCatcherView, context: Context) {
+        nsView.onUp = onUp
+        nsView.onDown = onDown
+        nsView.onReturn = onReturn
+    }
+
+    class KeyCatcherView: NSView {
+        var onUp: (() -> Void)?
+        var onDown: (() -> Void)?
+        var onReturn: (() -> Void)?
+
+        override var acceptsFirstResponder: Bool { true }
+
+        override func keyDown(with event: NSEvent) {
+            switch event.keyCode {
+            case 126: onUp?()       // up arrow
+            case 125: onDown?()     // down arrow
+            case 36: onReturn?()    // return
+            default: super.keyDown(with: event)
+            }
+        }
     }
 }

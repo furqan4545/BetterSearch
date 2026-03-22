@@ -58,7 +58,9 @@ class SearchPanel: NSPanel {
             self?.dismiss()
         })
         hostingView = NSHostingView(rootView: AnyView(searchView.frame(width: 680)))
-        hostingView.sizingOptions = [.intrinsicContentSize]
+        if #available(macOS 13.0, *) {
+            hostingView.sizingOptions = [.intrinsicContentSize]
+        }
         hostingView.translatesAutoresizingMaskIntoConstraints = false
 
         // ── Assemble ──

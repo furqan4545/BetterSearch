@@ -9,6 +9,5 @@ struct BSApp: App {
             Color.clear.frame(width: 0, height: 0)
                 .hidden()
         }
-        .windowResizability(.contentSize)
     }
 }
