@@ -92,31 +92,29 @@ struct SearchView: View {
     private var searchField: some View {
         HStack(spacing: 12) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 20, weight: .light, design: .rounded))
-                .foregroundStyle(.primary.opacity(0.6))
-                .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 0.5)
+                .font(.system(size: 20, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white.opacity(0.7))
+                .shadow(color: .black.opacity(0.45), radius: 2, x: 0, y: 1)
 
-            TextField("Search files...", text: $viewModel.searchText)
-                .textFieldStyle(.plain)
-                .font(.system(size: 22, weight: .light, design: .rounded))
-                .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 0.5)
+            ShadowTextField(text: $viewModel.searchText, placeholder: "Search files...")
+                .frame(height: 30)
 
-            // AI Toggle
-            Button(action: { viewModel.aiEnabled.toggle() }) {
-                HStack(spacing: 4) {
-                    Image(systemName: viewModel.aiEnabled ? "sparkles" : "magnifyingglass")
-                        .font(.system(size: 14))
-                    Text("AI")
-                        .font(.system(size: 12, weight: .semibold))
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(viewModel.aiEnabled ? Color.purple.opacity(0.3) : Color.gray.opacity(0.2))
-                .foregroundStyle(viewModel.aiEnabled ? .purple : .secondary)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+            // AI Label
+            HStack(spacing: 4) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("AI")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
             }
-            .buttonStyle(.plain)
-            .help(viewModel.aiEnabled ? "AI Search: ON (fuzzy, semantic, category, content)" : "AI Search: OFF (exact match only)")
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(LinearGradient(colors: [.purple, .purple.opacity(0.7)], startPoint: .top, endPoint: .bottom))
+            )
+            .foregroundStyle(.white)
+            .shadow(color: .purple.opacity(0.5), radius: 4, x: 0, y: 2)
+            .shadow(color: .black.opacity(0.25), radius: 2, x: 0, y: 1)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
@@ -132,13 +130,13 @@ struct SearchView: View {
                 Text(result.name)
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
                     .foregroundStyle(.primary)
-                    .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 0.5)
+                    .shadow(color: .black.opacity(0.4), radius: 1.5, x: 0, y: 0.5)
                     .lineLimit(1)
 
                 Text(result.path)
                     .font(.system(size: 11, design: .rounded))
-                    .foregroundStyle(.primary.opacity(0.6))
-                    .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 0.5)
+                    .foregroundStyle(.primary.opacity(0.65))
+                    .shadow(color: .black.opacity(0.4), radius: 1.5, x: 0, y: 0.5)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
