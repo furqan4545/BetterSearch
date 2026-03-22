@@ -1,12 +1,21 @@
 import AppKit
 import QuickLookThumbnailing
 
+enum MatchSource: String {
+    case exact = "exact"
+    case fuzzy = "fuzzy"
+    case semantic = "semantic"
+    case category = "category"
+    case contentMatch = "content"
+}
+
 struct SearchResult: Identifiable {
     let id: String
     let name: String
     let path: String
     let url: URL
     let icon: NSImage?
+    var matchSource: MatchSource = .exact
 
     var resolvedIcon: NSImage {
         if let icon { return icon }

@@ -80,6 +80,23 @@ struct SearchView: View {
             TextField("Search files...", text: $viewModel.searchText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 22, weight: .light))
+
+            // AI Toggle
+            Button(action: { viewModel.aiEnabled.toggle() }) {
+                HStack(spacing: 4) {
+                    Image(systemName: viewModel.aiEnabled ? "sparkles" : "magnifyingglass")
+                        .font(.system(size: 14))
+                    Text("AI")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(viewModel.aiEnabled ? Color.purple.opacity(0.3) : Color.gray.opacity(0.2))
+                .foregroundStyle(viewModel.aiEnabled ? .purple : .secondary)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+            .help(viewModel.aiEnabled ? "AI Search: ON (fuzzy, semantic, category, content)" : "AI Search: OFF (exact match only)")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
@@ -103,6 +120,10 @@ struct SearchView: View {
             }
 
             Spacer()
+
+            if viewModel.aiEnabled && result.matchSource != .exact {
+                matchBadge(source: result.matchSource)
+            }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
@@ -136,5 +157,25 @@ struct SearchView: View {
         let index = selectedIndex ?? 0
         guard index < viewModel.results.count else { return }
         NSWorkspace.shared.open(viewModel.results[index].url)
+    }
+
+    private func matchBadge(source: MatchSource) -> some View {
+        let (label, color): (String, Color) = {
+            switch source {
+            case .exact: return ("", .clear)
+            case .fuzzy: return ("~fuzzy", .orange)
+            case .semantic: return ("🧠 similar", .purple)
+            case .category: return ("📁 category", .blue)
+            case .contentMatch: return ("📄 content", .green)
+            }
+        }()
+
+        return Text(label)
+            .font(.system(size: 10, weight: .medium))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(color.opacity(0.2))
+            .foregroundStyle(color)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 }

@@ -117,25 +117,60 @@ class FileIndexer {
     }
 
     /// Search in-memory index — sub-millisecond
+    /// Supports multi-word queries: "screen studio" matches "Screen_studio_sample.mp4"
     func search(term: String, limit: Int = 200) -> [SearchResult] {
         guard ready else { return [] }
 
         let termLower = term.lowercased()
+        let searchWords = termLower.components(separatedBy: " ").filter { !$0.isEmpty }
         let start = CFAbsoluteTimeGetCurrent()
 
         var matches: [(file: IndexedFile, matchScore: Int)] = []
         matches.reserveCapacity(500)
 
         for file in files {
-            guard file.nameLower.contains(termLower) else { continue }
+            // Normalize filename: replace separators with spaces for matching
+            let normalizedName = file.nameLower
+                .replacingOccurrences(of: "_", with: " ")
+                .replacingOccurrences(of: "-", with: " ")
+                .replacingOccurrences(of: ".", with: " ")
+
+            // Multi-word: ALL words must appear in filename (or path)
+            let allMatch: Bool
+            if searchWords.count > 1 {
+                allMatch = searchWords.allSatisfy { word in
+                    file.nameLower.contains(word) || normalizedName.contains(word)
+                }
+            } else {
+                allMatch = file.nameLower.contains(termLower) || normalizedName.contains(termLower)
+            }
+
+            guard allMatch else { continue }
 
             var score = file.score
             let nameNoExt = (file.nameLower as NSString).deletingPathExtension
-            if nameNoExt == termLower {
+            let nameNoExtNormalized = nameNoExt
+                .replacingOccurrences(of: "_", with: " ")
+                .replacingOccurrences(of: "-", with: " ")
+
+            // Exact match bonus
+            if nameNoExt == termLower || nameNoExtNormalized == termLower {
                 score -= 100
-            } else if file.nameLower.hasPrefix(termLower) {
+            } else if file.nameLower.hasPrefix(searchWords[0]) || normalizedName.hasPrefix(searchWords[0]) {
                 score -= 50
             }
+
+            // Bonus if all words appear consecutively (tighter match)
+            if searchWords.count > 1 {
+                let joined = searchWords.joined(separator: "")
+                let nameCompact = nameNoExt.replacingOccurrences(of: "_", with: "")
+                    .replacingOccurrences(of: "-", with: "")
+                    .replacingOccurrences(of: " ", with: "")
+                if nameCompact.contains(joined) {
+                    score -= 30
+                }
+            }
+
             matches.append((file, max(0, score)))
         }
 
@@ -155,6 +190,65 @@ class FileIndexer {
         logger.warning("Search '\(term)': \(matches.count) matches in \(String(format: "%.1f", elapsed))ms")
 
         return results
+    }
+
+    /// Fuzzy search — finds typos like "safri" → "Safari"
+    func fuzzySearch(term: String, limit: Int = 30) -> [SearchResult] {
+        guard ready else { return [] }
+
+        let termLower = term.lowercased()
+        var matches: [(file: IndexedFile, dist: Int)] = []
+
+        for file in files {
+            // Skip if already an exact match (handled by layer 1)
+            if file.nameLower.contains(termLower) { continue }
+
+            if FuzzyMatcher.isFuzzyMatch(term: termLower, fileName: file.nameLower) {
+                let nameNoExt = (file.nameLower as NSString).deletingPathExtension
+                let dist = FuzzyMatcher.levenshtein(termLower, nameNoExt)
+                matches.append((file, dist))
+            }
+        }
+
+        matches.sort { $0.dist < $1.dist }
+
+        return matches.prefix(limit).map { match in
+            SearchResult(
+                id: match.file.path,
+                name: match.file.name,
+                path: match.file.path,
+                url: URL(fileURLWithPath: match.file.path),
+                icon: nil,
+                matchSource: .fuzzy
+            )
+        }
+    }
+
+    /// Search by file extensions (for category detection)
+    func searchByExtensions(extensions: Set<String>, limit: Int = 100) -> [SearchResult] {
+        guard ready else { return [] }
+
+        var matches: [(file: IndexedFile, score: Int)] = []
+
+        for file in files {
+            let ext = (file.name as NSString).pathExtension.lowercased()
+            if extensions.contains(ext) {
+                matches.append((file, file.score))
+            }
+        }
+
+        matches.sort { $0.score < $1.score }
+
+        return matches.prefix(limit).map { match in
+            SearchResult(
+                id: match.file.path,
+                name: match.file.name,
+                path: match.file.path,
+                url: URL(fileURLWithPath: match.file.path),
+                icon: nil,
+                matchSource: .category
+            )
+        }
     }
 
     /// Pre-computed file type tier score
