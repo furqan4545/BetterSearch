@@ -69,12 +69,14 @@ struct SearchView: View {
                     .padding(.horizontal, 16)
                 HStack {
                     Text("\(viewModel.results.count) results in \(String(format: "%.1f", viewModel.searchTimeMs))ms")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(.primary.opacity(0.4))
+                        .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 0.5)
                     if FileIndexer.shared.ready {
                         Text("⚡ indexed")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.green.opacity(0.6))
+                            .font(.system(size: 10, design: .rounded))
+                            .foregroundStyle(.green)
+                            .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 0.5)
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -91,11 +93,13 @@ struct SearchView: View {
         HStack(spacing: 12) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 20, weight: .light, design: .rounded))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.primary.opacity(0.6))
+                .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 0.5)
 
             TextField("Search files...", text: $viewModel.searchText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 22, weight: .light, design: .rounded))
+                .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 0.5)
 
             // AI Toggle
             Button(action: { viewModel.aiEnabled.toggle() }) {
@@ -191,11 +195,12 @@ struct SearchView: View {
         }()
 
         return Text(label)
-            .font(.system(size: 10, weight: .medium))
+            .font(.system(size: 10, weight: .bold, design: .rounded))
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(color.opacity(0.2))
-            .foregroundStyle(color)
+            .background(color.opacity(0.35))
+            .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 0.5)
             .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 }
