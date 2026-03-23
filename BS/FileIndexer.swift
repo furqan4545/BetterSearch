@@ -12,13 +12,16 @@ struct IndexedFile {
 }
 
 /// In-memory file index. Scans user folders on launch for instant search.
+/// Uses FSEvents to auto-update when files are created, deleted, or renamed.
 class FileIndexer {
     static let shared = FileIndexer()
 
     private var files: [IndexedFile] = []
+    private var fileSet: Set<String> = []  // Fast lookup for dedup
     private(set) var ready = false
     private(set) var count: Int = 0
     private let queue = DispatchQueue(label: "fileIndexer", qos: .utility)
+    private var eventStream: FSEventStreamRef?
 
     private let scanFolders: [String] = {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -109,10 +112,131 @@ class FileIndexer {
             }
 
             self.files = allFiles.flatMap { $0 } + appFiles
+            self.fileSet = Set(self.files.map { $0.path })
             self.count = self.files.count
             self.ready = true
             let elapsed = CFAbsoluteTimeGetCurrent() - start
             logger.warning("Index built: \(self.count) files (\(appFiles.count) apps) in \(String(format: "%.2f", elapsed))s")
+
+            // Start watching for file system changes
+            self.startFSEventsWatcher()
+        }
+    }
+
+    // MARK: - FSEvents file system watcher
+
+    private func startFSEventsWatcher() {
+        let paths = scanFolders as CFArray
+        let flags: FSEventStreamCreateFlags = UInt32(
+            kFSEventStreamCreateFlagUseCFTypes |
+            kFSEventStreamCreateFlagFileEvents |
+            kFSEventStreamCreateFlagNoDefer
+        )
+
+        var context = FSEventStreamContext(
+            version: 0,
+            info: Unmanaged.passUnretained(self).toOpaque(),
+            retain: nil,
+            release: nil,
+            copyDescription: nil
+        )
+
+        guard let stream = FSEventStreamCreate(
+            nil,
+            fsEventsCallback,
+            &context,
+            paths,
+            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
+            1.0,  // 1 second latency — batches rapid changes
+            flags
+        ) else {
+            logger.error("Failed to create FSEventStream")
+            return
+        }
+
+        self.eventStream = stream
+        FSEventStreamScheduleWithRunLoop(stream, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+        FSEventStreamStart(stream)
+        logger.warning("FSEvents watcher started for \(self.scanFolders.count) folders")
+    }
+
+    /// Handle file system events — add/remove files from index
+    fileprivate func handleFSEvents(paths: [String], flags: [FSEventStreamEventFlags]) {
+        var changed = false
+
+        for (i, path) in paths.enumerated() {
+            let flag = flags[i]
+            let name = (path as NSString).lastPathComponent
+
+            // Skip hidden files and junk
+            if name.hasPrefix(".") { continue }
+            if path.contains("/node_modules/") || path.contains("/.git/") { continue }
+
+            let isRemoved = (flag & UInt32(kFSEventStreamEventFlagItemRemoved)) != 0
+            let isRenamed = (flag & UInt32(kFSEventStreamEventFlagItemRenamed)) != 0
+            let isCreated = (flag & UInt32(kFSEventStreamEventFlagItemCreated)) != 0
+            let isModified = (flag & UInt32(kFSEventStreamEventFlagItemModified)) != 0
+            let isDir = (flag & UInt32(kFSEventStreamEventFlagItemIsDir)) != 0
+
+            if isRemoved || (isRenamed && !FileManager.default.fileExists(atPath: path)) {
+                // File removed — remove from index
+                if fileSet.contains(path) {
+                    files.removeAll { $0.path == path }
+                    fileSet.remove(path)
+                    changed = true
+                }
+            } else if isCreated || isRenamed || isModified {
+                // File created or appeared — add to index if not already there
+                guard FileManager.default.fileExists(atPath: path) else { continue }
+                if !fileSet.contains(path) {
+                    let score = Self.tierScore(path: path, name: name)
+                    let entry = IndexedFile(name: name, nameLower: name.lowercased(), path: path, score: score)
+                    files.append(entry)
+                    fileSet.insert(path)
+                    changed = true
+
+                    // If it's a new directory, scan its contents
+                    if isDir {
+                        scanNewDirectory(at: path)
+                    }
+                }
+            }
+        }
+
+        if changed {
+            count = files.count
+            logger.warning("Index updated: \(self.count) files (live)")
+        }
+    }
+
+    /// Scan a newly created directory and add its contents to the index
+    private func scanNewDirectory(at dirPath: String) {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: URL(fileURLWithPath: dirPath),
+            includingPropertiesForKeys: [.nameKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else { return }
+
+        for case let fileURL as URL in enumerator {
+            if enumerator.level > 6 { enumerator.skipDescendants(); continue }
+            let name = fileURL.lastPathComponent
+            if name == "node_modules" || name == ".git" { enumerator.skipDescendants(); continue }
+
+            let path = fileURL.path
+            if !fileSet.contains(path) {
+                let score = Self.tierScore(path: path, name: name)
+                files.append(IndexedFile(name: name, nameLower: name.lowercased(), path: path, score: score))
+                fileSet.insert(path)
+            }
+        }
+    }
+
+    deinit {
+        if let stream = eventStream {
+            FSEventStreamStop(stream)
+            FSEventStreamInvalidate(stream)
+            FSEventStreamRelease(stream)
         }
     }
 
@@ -302,5 +426,26 @@ class FileIndexer {
         else if depth > 10 { score += 20 }
 
         return max(0, score)
+    }
+}
+
+// MARK: - FSEvents C callback (must be a free function)
+
+private func fsEventsCallback(
+    streamRef: ConstFSEventStreamRef,
+    clientCallBackInfo: UnsafeMutableRawPointer?,
+    numEvents: Int,
+    eventPaths: UnsafeMutableRawPointer,
+    eventFlags: UnsafePointer<FSEventStreamEventFlags>,
+    eventIds: UnsafePointer<FSEventStreamEventId>
+) {
+    guard let info = clientCallBackInfo else { return }
+    let indexer = Unmanaged<FileIndexer>.fromOpaque(info).takeUnretainedValue()
+
+    let paths = Unmanaged<CFArray>.fromOpaque(eventPaths).takeUnretainedValue() as! [String]
+    let flags = Array(UnsafeBufferPointer(start: eventFlags, count: numEvents))
+
+    DispatchQueue.main.async {
+        indexer.handleFSEvents(paths: paths, flags: flags)
     }
 }
