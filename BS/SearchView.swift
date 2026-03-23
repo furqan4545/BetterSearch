@@ -5,6 +5,7 @@ struct SearchView: View {
     var onDismiss: () -> Void = {}
 
     @State private var selectedIndex: Int? = nil
+    @State private var permissionError: String? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -128,7 +129,7 @@ struct SearchView: View {
             index: index,
             isSelected: selectedIndex == index,
             isImageSelected: viewModel.selectedImagePaths.contains(result.path),
-            onOpen: { NSWorkspace.shared.open(result.url) },
+            onOpen: { safeOpen(result) },
             onToggleCopy: {
                 viewModel.toggleImageSelection(result)
             },
@@ -152,9 +153,77 @@ struct SearchView: View {
         guard !viewModel.results.isEmpty else { return }
         let index = selectedIndex ?? 0
         guard index < viewModel.results.count else { return }
-        NSWorkspace.shared.open(viewModel.results[index].url)
+        safeOpen(viewModel.results[index])
     }
 
+    /// Open a file with permission error handling
+    private func safeOpen(_ result: SearchResult) {
+        let fm = FileManager.default
+        let path = result.path
+
+        // Check if file still exists
+        guard fm.fileExists(atPath: path) else {
+            showPermissionAlert(
+                title: "File Not Found",
+                message: "The file \"\(result.name)\" no longer exists at:\n\(path)"
+            )
+            return
+        }
+
+        // Check read permission
+        guard fm.isReadableFile(atPath: path) else {
+            showPermissionAlert(
+                title: "Permission Denied",
+                message: "BetterSearch can't open \"\(result.name)\" because you don't have permission.\n\nWould you like to grant access?",
+                showGrantButton: true,
+                filePath: path
+            )
+            return
+        }
+
+        // Try to open
+        let success = NSWorkspace.shared.open(result.url)
+        if !success {
+            showPermissionAlert(
+                title: "Unable to Open",
+                message: "macOS couldn't open \"\(result.name)\".\n\nThe file may require a specific app or permission to open.",
+                showGrantButton: true,
+                filePath: path
+            )
+        }
+    }
+
+    private func showPermissionAlert(title: String, message: String, showGrantButton: Bool = false, filePath: String? = nil) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .warning
+
+        if showGrantButton {
+            alert.addButton(withTitle: "Open System Settings")
+            alert.addButton(withTitle: "Show in Finder")
+            alert.addButton(withTitle: "Cancel")
+
+            let response = alert.runModal()
+            switch response {
+            case .alertFirstButtonReturn:
+                // Open Privacy & Security settings
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
+                    NSWorkspace.shared.open(url)
+                }
+            case .alertSecondButtonReturn:
+                // Show in Finder — user can open manually
+                if let path = filePath {
+                    NSWorkspace.shared.selectFile(path, inFileViewerRootedAtPath: "")
+                }
+            default:
+                break
+            }
+        } else {
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
+    }
 }
 
 // MARK: - Keyboard handler compatible with macOS 12+

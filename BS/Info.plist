@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>BetterSearch</string>
+    <key>CFBundleDisplayName</key>
+    <string>BetterSearch</string>
+    <key>CFBundleIdentifier</key>
+    <string>BetterSearch.BS</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIconFile</key>
+    <string></string>
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+    <key>NSMainStoryboardFile</key>
+    <string></string>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+
+    <!-- Permission usage descriptions -->
+    <key>NSAppleEventsUsageDescription</key>
+    <string>BetterSearch needs Apple Events access to open files and show them in Finder.</string>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>BetterSearch needs access to your Desktop to search and index files.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>BetterSearch needs access to your Documents to search and index files.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>BetterSearch needs access to your Downloads to search and index files.</string>
+    <key>NSRemovableVolumesUsageDescription</key>
+    <string>BetterSearch needs access to external drives to search files on them.</string>
+    <key>NSNetworkVolumesUsageDescription</key>
+    <string>BetterSearch needs access to network drives to search files on them.</string>
+</dict>
+</plist>
