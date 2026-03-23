@@ -137,6 +137,22 @@ class SearchViewModel: ObservableObject {
         logger.warning("L1 exact: \(exactResults.count) results in \(String(format: "%.1f", self.searchTimeMs))ms")
 
         // ═══════════════════════════════════════════════════════
+        // LAYER 1.5: App metadata search (find apps by what they DO)
+        // ═══════════════════════════════════════════════════════
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let appResults = Self.findAppsByMetadata(term: term)
+            DispatchQueue.main.async {
+                guard let self, self.searchID == searchID else { return }
+                let newApps = appResults.filter { self.seenPaths.insert($0.path).inserted }
+                if !newApps.isEmpty {
+                    // Insert apps at the VERY top
+                    self.results.insert(contentsOf: newApps, at: 0)
+                    logger.warning("L1.5 app metadata: \(newApps.count) apps found")
+                }
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════
         // LAYER 4: Category detection (instant, in-memory)
         // ═══════════════════════════════════════════════════════
         if let categoryExts = CategoryDetector.detect(term: term) {
@@ -224,6 +240,10 @@ class SearchViewModel: ObservableObject {
 
     /// Combined score: matchSource priority + file tier score
     nonisolated private static func combinedScore(_ r: SearchResult) -> Int {
+        // Apps ALWAYS go to the very top regardless of match source
+        let isApp = r.name.hasSuffix(".app")
+        if isApp { return -1000 + FileIndexer.tierScore(path: r.path, name: r.name) }
+
         // Match source priority (lower = better)
         let sourcePriority: Int
         switch r.matchSource {
@@ -236,16 +256,109 @@ class SearchViewModel: ObservableObject {
 
         let tierScore = FileIndexer.tierScore(path: r.path, name: r.name)
 
-        // For fuzzy/semantic: if file is tier1 (apps, images, docs), boost it significantly
-        // so a fuzzy match on Arc.app ranks higher than exact match on learningv1.entitlements
+        // For fuzzy/semantic: if file is tier1 (images, docs), boost it significantly
         if r.matchSource == .fuzzy || r.matchSource == .semantic {
             if tierScore <= 50 {
-                // High priority file (app, image, doc, video) — promote it
                 return sourcePriority / 2 + tierScore
             }
         }
 
         return sourcePriority + tierScore
+    }
+
+    // MARK: - App metadata search (finds apps by description/keywords, not just name)
+
+    nonisolated static func findAppsByMetadata(term: String) -> [SearchResult] {
+        let termLower = term.lowercased()
+        let searchWords = termLower.components(separatedBy: " ").filter { !$0.isEmpty }
+
+        // 1. mdfind: search app name, description, text content, AND bundle identifier
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/mdfind")
+        process.arguments = [
+            "kMDItemContentType == 'com.apple.application-bundle' && (kMDItemDisplayName == '*\(term)*'cd || kMDItemTextContent == '*\(term)*'cd || kMDItemCFBundleIdentifier == '*\(term)*'cd)"
+        ]
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        do { try process.run() } catch { return [] }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
+            if process.isRunning { process.terminate() }
+        }
+        process.waitUntilExit()
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: data, encoding: .utf8) ?? ""
+        var paths = output.components(separatedBy: "\n").filter { !$0.isEmpty }
+
+        // 2. Also scan /Applications manually — check bundle ID for each word
+        let fm = FileManager.default
+        let home = fm.homeDirectoryForCurrentUser.path
+        let appDirs = ["/Applications", "/Applications/Utilities", "/System/Applications", "/System/Applications/Utilities", "\(home)/Applications"]
+
+        for appDir in appDirs {
+            guard let contents = try? fm.contentsOfDirectory(atPath: appDir) else { continue }
+            for item in contents where item.hasSuffix(".app") {
+                let appPath = "\(appDir)/\(item)"
+                if paths.contains(appPath) { continue }
+
+                // Check bundle ID
+                let plistPath = "\(appPath)/Contents/Info.plist"
+                if let plist = NSDictionary(contentsOfFile: plistPath),
+                   let bundleID = plist["CFBundleIdentifier"] as? String {
+                    let bundleLower = bundleID.lowercased()
+                    // Split bundle ID into words: com.devuap.beautyshotapp → ["com", "devuap", "beautyshot", "app"]
+                    let bundleWords = bundleLower
+                        .replacingOccurrences(of: ".", with: " ")
+                        .replacingOccurrences(of: "-", with: " ")
+                        .replacingOccurrences(of: "_", with: " ")
+
+                    // Check if any search word appears in bundle ID
+                    // Also split long words into substrings for partial matching
+                    // "screenshot" → check "screen", "shot" against "beautyshotapp"
+                    var allTerms = searchWords
+                    for word in searchWords where word.count >= 6 {
+                        // Split compound words: try all substrings of length >= 3
+                        for i in 3...(word.count - 3) {
+                            let prefix = String(word.prefix(i))
+                            let suffix = String(word.suffix(word.count - i))
+                            if prefix.count >= 3 { allTerms.append(prefix) }
+                            if suffix.count >= 3 { allTerms.append(suffix) }
+                        }
+                    }
+
+                    let matches = allTerms.contains { word in
+                        bundleLower.contains(word) || bundleWords.contains(word)
+                    }
+
+                    // Also check app description from Info.plist
+                    let appDescription = (plist["CFBundleName"] as? String ?? "").lowercased()
+                    let appGetInfo = (plist["CFBundleGetInfoString"] as? String ?? "").lowercased()
+                    let descMatches = searchWords.contains { word in
+                        appDescription.contains(word) || appGetInfo.contains(word)
+                    }
+
+                    if matches || descMatches {
+                        paths.append(appPath)
+                    }
+                }
+            }
+        }
+
+        return paths.prefix(10).map { path in
+            let url = URL(fileURLWithPath: path)
+            let icon = NSWorkspace.shared.icon(forFile: path)
+            icon.size = NSSize(width: 32, height: 32)
+            return SearchResult(
+                id: path,
+                name: url.lastPathComponent,
+                path: path,
+                url: url,
+                icon: icon,
+                matchSource: .semantic
+            )
+        }
     }
 
     // MARK: - mdfind fallback
